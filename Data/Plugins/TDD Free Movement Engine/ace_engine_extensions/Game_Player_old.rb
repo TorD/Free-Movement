@@ -1,4 +1,4 @@
-if true
+if false # false to disable
 #==============================================================================
 # ** Game_Player
 #------------------------------------------------------------------------------
@@ -8,23 +8,15 @@ if true
 #==============================================================================
 
 class Game_Player < Game_Character
-  include TDD::FME::SETTINGS::PLAYER
+  include TDD::FME::PHYSICS::PLAYER
+  attr_accessor :velocity_x
   #--------------------------------------------------------------------------
   # * ALIAS Object Initialization
   #--------------------------------------------------------------------------
-  alias_method :tdd_fme_original_game_player_initialize, :initialize
+  alias_method :tdd_fme_game_player_initialize, :initialize
   def initialize
-    tdd_fme_original_game_player_initialize
-    @velocity_x = @velocity_y = 0
-    @acceleration = ACCELERATION
-    @deceleration = DECELERATION
-    @max_velocity = MAX_VELOCITY
-  end
-  #--------------------------------------------------------------------------
-  # * NEW INHERITED OVERRIDE Check if FME is enabled
-  #--------------------------------------------------------------------------
-  def tdd_use_fme?
-    ENABLE_FME
+    tdd_fme_game_player_initialize
+    @velocity_x = 0
   end
   #--------------------------------------------------------------------------
   # * Clear Transfer Player Information
@@ -281,14 +273,14 @@ class Game_Player < Game_Character
   # * Processing of Movement via Input from Directional Buttons
   #--------------------------------------------------------------------------
   def move_by_input
-    return if !movable? || $game_map.interpreter.running?
-    move_straight(Input.dir4) if Input.dir4 > 0
+    #return if !movable? || $game_map.interpreter.running?
+    move_straight(Input.dir8) if Input.dir8 > 0
   end
   #--------------------------------------------------------------------------
-  # * OVERRIDE Determine if Movement is Possible
+  # * Determine if Movement is Possible
   #--------------------------------------------------------------------------
   def movable?
-    return false if moving? && !tdd_use_fme?
+    return false if moving?
     return false if @move_route_forcing || @followers.gathering?
     return false if @vehicle_getting_on || @vehicle_getting_off
     return false if $game_message.busy? || $game_message.visible
@@ -296,25 +288,51 @@ class Game_Player < Game_Character
     return true
   end
   #--------------------------------------------------------------------------
-  # * ALIAS Frame Update
+  # * INHERITED OVERWRITE Determine if Moving
   #--------------------------------------------------------------------------
-  alias_method :tdd_fme_original_game_player_update, :update
-  def update
-    if tdd_use_fme?
-      tdd_fme_move_by_input
-      super
-    else
-      tdd_fme_original_game_player_update
-    end
+  def moving?
+    Input.press?(:UP) || Input.press?(:DOWN) || Input.press?(:LEFT) || Input.press?(:RIGHT) 
   end
   #--------------------------------------------------------------------------
-  # * NEW FME Move By Input
+  # * Frame Update
   #--------------------------------------------------------------------------
-  def tdd_fme_move_by_input
-    tdd_fme_move_stop_horizontal if !Input.press?(:LEFT) && !Input.press?(:RIGHT)
-    tdd_fme_move_stop_vertical if !Input.press?(:UP) && !Input.press?(:DOWN)
-    return if !movable? || $game_map.interpreter.running?
-    tdd_fme_move(Input.dir8) if Input.dir8 > 0
+  def update
+    last_real_x = @real_x
+    last_real_y = @real_y
+    last_moving = moving?
+    #move_by_input
+    update_movement
+    super
+    update_scroll(last_real_x, last_real_y)
+    update_vehicle
+    update_nonmoving(last_moving) unless moving?
+    @followers.update
+  end
+  def update_movement
+    if Input.press?(:RIGHT) || Input.press?(:LEFT)
+      if Input.press?(:RIGHT)
+        if @velocity_x < 0
+          @velocity_x += DECELERATION # If the player is moving left, then presses right, deceleration is added instead of acceleration
+        elsif @velocity_x < MAX_VELOCITY
+          @velocity_x += ACCELERATION
+        else
+          @velocity_x = MAX_VELOCITY
+        end
+      elsif Input.press?(:LEFT)
+        if @velocity_x > 0
+          @velocity_x -= DECELERATION
+        elsif @velocity_x > -MAX_VELOCITY
+          @velocity_x -= ACCELERATION
+        else
+          @velocity_x = -MAX_VELOCITY
+        end
+      end
+      puts @velocity_x
+      @real_x += @velocity_x
+    else # Not pressing left or right
+      @velocity_x -= @velocity_x * FRICTION
+      @velocity_x = 0 if @velocity_x.abs < FRICTION
+    end
   end
   #--------------------------------------------------------------------------
   # * Scroll Processing
@@ -480,13 +498,6 @@ class Game_Player < Game_Character
   #--------------------------------------------------------------------------
   def on_damage_floor?
     $game_map.damage_floor?(@x, @y) && !in_airship?
-  end
-  #--------------------------------------------------------------------------
-  # * Move Straight
-  #--------------------------------------------------------------------------
-  def move_straight(d, turn_ok = true)
-    @followers.move if passable?(@x, @y, d)
-    super
   end
   #--------------------------------------------------------------------------
   # * Move Diagonally
